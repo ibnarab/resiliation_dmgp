@@ -1,0 +1,5 @@
+[0m[[0m[31merror[0m] [0m[0mC:\Users\DIOP028957\IdeaProjects\Resiliation_dmgp\src\main\scala\Resiliation.scala:13:28: not enough arguments for method calculGlobal: (dump_in: String, in_detail: String, voix_sms: String, data: String, souscription: String, parc_orange: String, daily_clients: String, master_data: String, debut: String, fin: String, date_parc: String)org.apache.spark.sql.DataFrame.[0m
+[0m[[0m[31merror[0m] [0m[0mUnspecified value parameter date_parc.[0m
+[0m[[0m[31merror[0m] [0m[0m      val df = calculGlobal(base_dump_in, base_in_detail, base_voix_sms,[0m
+[0m[[0m[31merror[0m] [0m[0m                           ^[0m
+[0m[[0m[31merror[0m] [0m[0mone error found[0m
