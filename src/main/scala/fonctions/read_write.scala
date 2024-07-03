@@ -12,6 +12,7 @@ object read_write {
               .repartition(1)
 
               .write
+            
 
               .mode(SaveMode.Append)
 

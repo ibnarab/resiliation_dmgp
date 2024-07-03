@@ -35,6 +35,7 @@ object constants {
         val base_daily_clients               =    "refined_vue360.daily_clients"
         val base_subscribers                 =    "trusted_om.subscribers"
         val base_subscribers_full            =    "trusted_om.subscribers_full"
+        val base_ligne_prepaid               =    "trusted_sicli.ligne_prepaid"
 
 
         val resiliation_global               =    "dmgp_temp.resiliation_global"

@@ -10,7 +10,7 @@ object utils {
   def calculGlobal(dump_in: String, in_detail: String, voix_sms: String,
                    data: String, souscription: String, parc_orange: String,
                    daily_clients: String, master_data: String, debut: String, fin: String, date_parc: String,
-                   subscribers: String, subscribers_full: String, debut_subs: String, fin_subs: String,
+                   subscribers: String, subscribers_full: String, ligne_prepaid: String, debut_subs: String, fin_subs: String,
                    year_subs_full: String, month_subs_full: String, jour_lancement: String): DataFrame = {
 
     val df_telco = spark.sql(
@@ -19,7 +19,9 @@ object utils {
          |temp_dump_in AS (
          |    SELECT
          |        msisdn,
-         |        CAST(abs(compte) AS DOUBLE) AS solde_compteur
+         |        brand AS formule,
+         |        CAST(abs(compte) AS DOUBLE) AS solde_compteur,
+         |        status
          |    FROM $dump_in
          |    WHERE day = '$fin' AND msisdn IS NOT NULL
          |),
@@ -93,13 +95,12 @@ object utils {
          |temp_daily_clients AS (
          |    SELECT
          |        msisdn,
-         |        formule,
          |        date_premiere_activation,
-         |        datediff(current_date, date_premiere_activation) AS anciennete_jour,
-         |        floor(months_between(current_date, date_premiere_activation) / 12) AS anciennete_annee
+         |        datediff('$jour_lancement', date_premiere_activation) AS anciennete_jour,
+         |        floor(months_between('$jour_lancement', date_premiere_activation) / 12) AS anciennete_annee
          |    FROM $daily_clients
          |    WHERE day = '$fin' AND msisdn IS NOT NULL
-         |    GROUP BY msisdn, formule, date_premiere_activation
+         |    GROUP BY msisdn, date_premiere_activation
          |),
          |
          |temp_master_data AS (
@@ -108,12 +109,20 @@ object utils {
          |        imsi
          |    FROM $master_data
          |    WHERE day = '$fin' AND msisdn IS NOT NULL
+         |),
+         |
+         |temp_ligne_prepaid AS (
+         |    SELECT
+         |        num_ligne     AS msisdn,
+         |        d_resiliation AS resiliation
+         |    FROM $ligne_prepaid
+         |    WHERE day = '$fin' AND num_ligne IS NOT NULL
          |)
          |
          |SELECT
          |    a.msisdn,
          |    j.imsi,
-         |    h.formule,
+         |    a.formule,
          |    COALESCE(b.montant_recharge, 0)           AS montant_recharge,
          |    COALESCE(c.nombre_appel_sms, 0)           AS nombre_appel_sms,
          |    COALESCE(d.nombre_cons_data, 0)           AS nombre_cons_data,
@@ -125,6 +134,8 @@ object utils {
          |    h.date_premiere_activation,
          |    h.anciennete_jour,
          |    h.anciennete_annee,
+         |    a.status,
+         |    k.resiliation,
          |    '$jour_lancement' AS jour_lancement
          |FROM
          |temp_dump_in                       a
@@ -137,6 +148,7 @@ object utils {
          |LEFT  JOIN temp_daily_clients      h          ON a.msisdn = h.msisdn
          |LEFT  JOIN temp_parc_orange        i          ON a.msisdn = i.msisdn
          |LEFT  JOIN temp_master_data        j          ON a.msisdn = j.msisdn
+         |LEFT  JOIN temp_ligne_prepaid      k          ON a.msisdn = k.msisdn
       """.stripMargin)
 
     val df_om = spark.sql(
@@ -173,7 +185,7 @@ object utils {
     df_final.select(
       "msisdn", "imsi", "formule", "montant_recharge", "nombre_appel_sms", "nombre_cons_data",
       "montant_recharge_bundles", "montant_recharge_illiflex", "montant_recharge_pass_data", "solde_compteur",
-      "present_parc_orange", "date_premiere_activation", "anciennete_jour", "anciennete_annee", "client_om",
+      "present_parc_orange", "date_premiere_activation", "anciennete_jour", "anciennete_annee", "status", "resiliation", "client_om",
       "jour_lancement"
     )
 
@@ -183,11 +195,15 @@ object utils {
   def resultatFinal(dataFrame: DataFrame): DataFrame = {
 
     dataFrame.select("msisdn", "imsi", "formule", "client_om", "jour_lancement")
-      .where(col("montant_recharge") === 0 && col("nombre_appel_sms") === 0 &&
+      .where((col("msisdn").startsWith("77") || col("msisdn").startsWith("78"))
+        && col("formule").isin("Diamono CLASSIC", "Jamono Allo", "Kirene Avec Orange", "New KAO",
+      "Orange Prepaid", "Jamono Max", "Jamono New S'cool", "Jamono Pro", "S'Cool Product")
+        && col("montant_recharge") === 0 && col("nombre_appel_sms") === 0 &&
         col("nombre_cons_data") === 0 && col("montant_recharge_bundles") === 0 &&
         col("montant_recharge_illiflex") === 0 && col("montant_recharge_pass_data") === 0 &&
         col("solde_compteur") < 1000 && col("present_parc_orange") === "Non"
-      && col("anciennete_jour") > 180 && col("anciennete_annee") < 10)
+      && col("anciennete_jour") > 180 && col("anciennete_annee") < 10 && col("status") != 'G'
+      && col("resiliation") === ' ')
   }
 
 }
