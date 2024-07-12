@@ -10,7 +10,8 @@ object utils {
   def calculGlobal(dump_in: String, in_detail: String, voix_sms: String,
                    data: String, souscription: String, parc_orange: String,
                    daily_clients: String, master_data: String, debut: String, fin: String, date_parc: String,
-                   subscribers: String, subscribers_full: String, ligne_prepaid: String, debut_subs: String, fin_subs: String,
+                   subscribers: String, subscribers_full: String, ligne_prepaid: String, service_provider: String,
+                   w_sms: String, debut_subs: String, fin_subs: String,
                    year_subs_full: String, month_subs_full: String, jour_lancement: String): DataFrame = {
 
     val df_telco = spark.sql(
@@ -40,7 +41,7 @@ object utils {
          |        caller_msisdn AS msisdn,
          |        SUM(nombre) AS nombre_appel_sms
          |    FROM $voix_sms
-         |    WHERE day BETWEEN '$debut' AND '$fin' AND caller_msisdn IS NOT NULL
+         |    WHERE day BETWEEN '$debut' AND '$fin' AND caller_msisdn IS NOT NULL AND traffic_direction = 'SORTANT'
          |    GROUP BY caller_msisdn
          |),
          |
@@ -177,16 +178,60 @@ object utils {
         |FROM temp_subscribers_full
       """.stripMargin).withColumnRenamed("msisdn", "msisdn_om")
 
+    val df_wave = spark.sql(
+      s"""
+        |WITH service_provider AS (
+        |    SELECT DISTINCT substring(msisdn, 4, 9) AS msisdn
+        |    FROM $service_provider
+        |    WHERE day BETWEEN '$debut' AND '$fin'
+        |      AND portapp = '66780'
+        |      AND LENGTH(msisdn) = 12
+        |),
+        |w_sms AS (
+        |    SELECT DISTINCT b.msisdn
+        |    FROM $w_sms a
+        |    LEFT JOIN refined_trafic.master_data b
+        |    ON a.imsi = b.imsi
+        |    AND b.day BETWEEN '$debut' AND '$fin'
+        |)
+        |-- Selectionner les msisdn qui sont dans service_provider mais pas dans w_sms
+        |SELECT msisdn
+        |FROM service_provider
+        |EXCEPT
+        |SELECT msisdn
+        |FROM w_sms
+        |
+        |UNION
+        |
+        |-- Selectionner les msisdn qui sont dans w_sms mais pas dans service_provider
+        |SELECT msisdn
+        |FROM w_sms
+        |EXCEPT
+        |SELECT msisdn
+        |FROM service_provider
+        |
+        |UNION
+        |
+        |-- Selectionner les msisdn qui sont dans les deux tables
+        |SELECT msisdn
+        |FROM service_provider
+        |INTERSECT
+        |SELECT msisdn
+        |FROM w_sms
+      """.stripMargin).withColumnRenamed("msisdn", "msisdn_wave")
+
     val df_final = df_telco
       .join(df_om, df_telco("msisdn") === df_om("msisdn_om"), "left")
+      .join(df_wave, df_telco("msisdn") === df_wave("msisdn_wave"), "left")
       .withColumn("client_om", when(df_om("msisdn_om").isNotNull, "Oui").otherwise("Non"))
-      .drop("msisdn_om")
+      .withColumn("actif_wave", when(df_wave("msisdn_wave").isNotNull, "Oui").otherwise("Non"))
+      .drop("msisdn_om", "msisdn_wave")
 
     df_final.select(
       "msisdn", "imsi", "formule", "montant_recharge", "nombre_appel_sms", "nombre_cons_data",
       "montant_recharge_bundles", "montant_recharge_illiflex", "montant_recharge_pass_data", "solde_compteur",
       "present_parc_orange", "date_premiere_activation", "anciennete_jour", "anciennete_annee", "status", "resiliation", "client_om",
-      "jour_lancement"
+      "actif_wave","jour_lancement"
     )
 
   }
@@ -194,7 +239,7 @@ object utils {
 
   def resultatFinal(dataFrame: DataFrame): DataFrame = {
 
-    dataFrame.select("msisdn", "imsi", "formule", "client_om", "jour_lancement")
+    dataFrame.select("msisdn", "imsi", "formule", "client_om", "actif_wave", "jour_lancement")
       .where((col("msisdn").startsWith("77") || col("msisdn").startsWith("78"))
         && col("formule").isin("Diamono CLASSIC", "Jamono Allo", "Kirene Avec Orange", "New KAO",
       "Orange Prepaid", "Jamono Max", "Jamono New S'cool", "Jamono Pro", "S'Cool Product")
@@ -203,7 +248,7 @@ object utils {
         col("montant_recharge_illiflex") === 0 && col("montant_recharge_pass_data") === 0 &&
         col("solde_compteur") < 1000 && col("present_parc_orange") === "Non"
       && col("anciennete_jour") > 180 && col("anciennete_annee") < 10 && col("status") != 'G'
-      && col("resiliation") === ' ')
+      && (col("resiliation") === "" || col("resiliation").isNull))
   }
 
 }
